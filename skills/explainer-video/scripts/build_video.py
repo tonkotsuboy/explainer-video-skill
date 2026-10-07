@@ -54,6 +54,11 @@ ARROW_SVG = (
     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15M13 6l6 6-6 6" fill="none" '
     'stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>'
 )
+def js_str(value: str) -> str:
+    """Return a JS string literal that is safe inside an inline <script> (no raw "<")."""
+    return json.dumps(value).replace("<", "\\u003c")
+
+
 NUMBER = re.compile(r"^(\D*?)(\d[\d,]*(?:\.\d+)?)(.*)$", re.DOTALL)
 # Pygments token -> tok-* class (colors in theme.css). First match wins, so subtypes come before parents.
 TOKEN_CLASSES = [
@@ -198,8 +203,8 @@ class Scene:
         fmt = f'{{minimumFractionDigits:{digits},maximumFractionDigits:{digits},useGrouping:{str("," in num).lower()}}}'
         self.js.append(
             f'{{const el=document.getElementById("{el}"),o={{v:0}};tl.fromTo(o,{{v:0}},{{v:{n},duration:{COUNT_UP},'
-            f'ease:"power3.out",immediateRender:false,onUpdate:()=>{{el.textContent={json.dumps(pre)}+o.v.toLocaleString("en-US",{fmt})'
-            f"+{json.dumps(post)};}}}},{t});}}"
+            f'ease:"power3.out",immediateRender:false,onUpdate:()=>{{el.textContent={js_str(pre)}+o.v.toLocaleString("en-US",{fmt})'
+            f"+{js_str(post)};}}}},{t});}}"
         )
 
     def item(self, it: dict, n: int, fill: bool) -> str:
@@ -319,6 +324,9 @@ class Scene:
             out += f'<div class="steps">{row}</div>'
         if grid := kinds({"card", "big", "img", "code"}):
             cols = self.visual.get("cols", 2)
+            if isinstance(cols, bool) or not isinstance(cols, int) or cols < 1:
+                self.warn(f"cols={cols!r} must be a positive integer; using 2")
+                cols = 2
             rows = -(-len(grid) // cols)
             self.code_box = ((BOARD_W - GAP_SM * (cols - 1)) / cols, (BOARD_H - GAP_SM * (rows - 1)) / rows)
             cells = "".join(self.item(it, n, fill=True) for n, it in grid)

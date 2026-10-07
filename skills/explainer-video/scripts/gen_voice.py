@@ -14,6 +14,7 @@ Usage: uv run gen_voice.py [script.json] [timeline.json] [voice dir]
 
 import hashlib
 import json
+import re
 import struct
 import sys
 import urllib.error
@@ -25,6 +26,7 @@ from yomi import compile_readings
 
 BASE = "http://127.0.0.1:10101"
 FPS, GAP, HEAD, TAIL = 30, 9, 15, 24  # frames: pause after a sentence, scene head, scene tail
+SCENE_ID = re.compile(r"^[a-z0-9][a-z0-9-]*$")  # same rule as build_video.py; ids become folder names
 DEFAULTS = ["script.json", "timeline.json", "assets/voice"]
 
 
@@ -66,6 +68,11 @@ def main() -> None:
     tts_text = compile_readings(cfg.get("readings", {}))
     cache_path = Path(voice) / "cache.json"
     cache = json.loads(cache_path.read_text(encoding="utf-8")) if cache_path.exists() else {}
+    ids = [sc.get("id") for sc in cfg["scenes"]]
+    bad = [i for i in ids if not isinstance(i, str) or not SCENE_ID.fullmatch(i)]
+    dup = sorted({i for i in ids if ids.count(i) > 1})
+    if bad or dup:
+        sys.exit(f"scene id must be unique and match {SCENE_ID.pattern}: invalid {bad}, duplicate {dup}")
     timeline, made, total = [], 0, 0
     for sc in cfg["scenes"]:
         Path(f"{voice}/{sc['id']}").mkdir(parents=True, exist_ok=True)
