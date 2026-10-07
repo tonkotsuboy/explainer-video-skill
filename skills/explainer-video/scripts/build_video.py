@@ -35,6 +35,12 @@ SCENE_ID = re.compile(r"^[a-z0-9][a-z0-9-]*$")  # used in file names and element
 # ponytail: measured break-even with 1-2 line cards below (a 1.9:1 image is half as wide in stack);
 # tune per scene with an explicit layout if it misjudges.
 STACK_ASPECT = 3.0  # a split image wider than this (width / height) is laid out as stack
+# Code excerpts: font size range in px, monospace advance per half-width char and line height in em.
+CODE_MIN, CODE_MAX, CHAR_EM, LINE_EM = 24, 34, 0.61, 1.45
+# Board and gaps from base.css / theme.css, used to estimate the box a code item gets.
+BOARD_W, BOARD_H, GAP_SM, GAP_MD = W - 200, H - 400, 24, 32
+CODE_CHROME_W, CODE_CHROME_H = 48, 80  # .code-body padding; padding + the head line above the panel
+STACK_ROW = 256  # cards under a stacked code item, plus the gap
 
 # Motion: short, ease-out, small distances, no bounce or loops. Seconds.
 REVEAL = '{opacity:0,y:24},{opacity:1,y:0,duration:0.6,ease:"expo.out"}'
@@ -78,11 +84,19 @@ def width(text: str) -> float:
     return sum(1 if unicodedata.east_asian_width(c) in "WFA" else 0.5 for c in text)
 
 
-def code_size(body: str) -> int:
-    """Shrink code so the longest line fits the split column and every line fits the height."""
+def code_size(body: str, box: tuple[float, float]) -> tuple[int, bool, bool]:
+    """Pick the largest size in CODE_MIN..CODE_MAX at which every line fits the code box.
+
+    Returns the size, whether long lines must wrap (they would need less than CODE_MIN to fit),
+    and whether the lines overflow the height even at the returned size.
+    """
+    w, h = box[0] - CODE_CHROME_W, box[1] - CODE_CHROME_H
     lines = body.split("\n")
-    longest = max(width(line) * 2 for line in lines) or 1
-    return int(max(17, min(34, 860 / (longest * 0.61), 600 / (len(lines) * 1.45))))
+    cols = [width(line) * 2 for line in lines]
+    by_width = w / ((max(cols) or 1) * CHAR_EM)
+    size = int(max(CODE_MIN, min(CODE_MAX, by_width, h / (len(lines) * LINE_EM))))
+    rows = sum(max(1, -(-c * CHAR_EM * size // w)) for c in cols)  # lines after wrapping
+    return size, by_width < CODE_MIN, rows * size * LINE_EM > h
 
 
 def highlight(body: str, lang: str | None, head: str) -> str:
@@ -101,7 +115,8 @@ def highlight(body: str, lang: str | None, head: str) -> str:
         cls = next((c for t, c in TOKEN_CLASSES if ttype in t), None)
         if cls is None and ttype in Token.Name and n + 1 < len(tokens) and tokens[n + 1][1].startswith("("):
             cls = "function"  # some lexers (TypeScript) leave function names as plain names
-        out.append(f'<span class="tok-{cls}">{e(text)}</span>' if cls else e(text))
+        # Close spans at line ends so each line can be wrapped in its own element.
+        out.append("\n".join(f'<span class="tok-{cls}">{e(p)}</span>' if cls and p else e(p) for p in text.split("\n")))
     return "".join(out)
 
 
@@ -118,6 +133,7 @@ class Scene:
         self.ends = [*self.starts[1:], self.dur]
         self.js: list[str] = []
         self.seen: dict[int, int] = {}
+        self.code_box = (BOARD_W, BOARD_H)  # set per layout in board()
         self.check()
 
     def fail(self, msg: str) -> None:
@@ -203,13 +219,24 @@ class Scene:
             )
             inner = f'<div class="shot">{inner}</div>'
         elif kind == "code":
+            raw = it.get("body", "")
             try:
-                body = highlight(it.get("body", ""), it.get("lang"), it.get("head", ""))
+                body = highlight(raw, it.get("lang"), it.get("head", ""))
             except ClassNotFound:
                 self.fail(f"unknown lang {it['lang']!r} (use a Pygments lexer name such as typescript or python)")
+            size, wrap, overflow = code_size(raw, self.code_box)
+            if wrap:
+                self.warn(f"item {n}: code lines are too long for {CODE_MIN}px and wrap; trim them or crop columns")
+                # Each line is a block with a hanging indent, so a wrapped line continues 2ch right of its own indent.
+                body = "".join(
+                    f'<span class="ln" style="--in:{len(r) - len(r.lstrip(" ")) + 2}ch">{b or " "}</span>'
+                    for r, b in zip(raw.split("\n"), body.split("\n"), strict=True)
+                )
+            if overflow:
+                self.warn(f"item {n}: code is cut off at the bottom even at {CODE_MIN}px; show fewer lines")
             inner = (
                 f'<div class="code">{f"<div class=code-head>{head}</div>" if head else ""}<div class="code-panel">'
-                f'<pre class="code-body" style="font-size:{code_size(it.get("body", ""))}px">{body}</pre>{ring}</div></div>'
+                f'<pre class="code-body{" wrap" if wrap else ""}" style="font-size:{size}px">{body}</pre>{ring}</div></div>'
             )
             self.focus(f"{sid}-ring", at, t)
         elif kind == "note":
@@ -269,6 +296,10 @@ class Scene:
             if layout == "split" and ar and ar > STACK_ASPECT:
                 layout = "stack"
                 print(f"{self.id}: image is {ar:.1f}:1, laid out as stack instead of split")
+            if layout == "stack":
+                self.code_box = (BOARD_W, BOARD_H - (STACK_ROW if kinds({"card", "big", "step", "note"}) else 0))
+            else:
+                self.code_box = ((BOARD_W - GAP_MD) * 1.2 / 2.2, BOARD_H)  # .split-left is flex 1.2 : 1
             left = "".join(self.item(it, n, fill=True) for n, it in media)
             right = "".join(self.item(it, n, fill=False) for n, it in kinds({"card", "big", "step"}))
             side = top + right + notes(top=False)
@@ -287,8 +318,11 @@ class Scene:
                 row += self.item(it, n, fill=True)
             out += f'<div class="steps">{row}</div>'
         if grid := kinds({"card", "big", "img", "code"}):
+            cols = self.visual.get("cols", 2)
+            rows = -(-len(grid) // cols)
+            self.code_box = ((BOARD_W - GAP_SM * (cols - 1)) / cols, (BOARD_H - GAP_SM * (rows - 1)) / rows)
             cells = "".join(self.item(it, n, fill=True) for n, it in grid)
-            out += f'<div class="grid" style="--cols:{self.visual.get("cols", 2)}">{cells}</div>'
+            out += f'<div class="grid" style="--cols:{cols}">{cells}</div>'
         return out + notes(top=False)
 
     def custom(self, name: str) -> str:
@@ -346,7 +380,9 @@ class Scene:
 
 def main() -> None:
     """Write the HyperFrames project into the current folder."""
-    script_path, timeline_path = ([*sys.argv[1:], "script.json", "timeline.json"])[:2]
+    args = sys.argv[1:]
+    script_path = args[0] if args else "script.json"
+    timeline_path = args[1] if len(args) > 1 else "timeline.json"
     script = json.loads(Path(script_path).read_text(encoding="utf-8"))
     timeline = {s["id"]: s for s in json.loads(Path(timeline_path).read_text(encoding="utf-8"))}
     theme_path = Path("theme.css") if Path("theme.css").is_file() else ASSETS / "theme.css"

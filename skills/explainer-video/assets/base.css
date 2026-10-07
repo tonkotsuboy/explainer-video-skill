@@ -247,6 +247,16 @@ body {
   line-height: 1.45;
   font-family: var(--font-mono);
 }
+/* Lines too long even at the smallest size wrap, continuing 2ch right of their own indent. */
+.code-body.wrap {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.code-body.wrap .ln {
+  display: block;
+  padding-left: var(--in);
+  text-indent: calc(-1 * var(--in));
+}
 .tok-keyword {
   color: var(--code-keyword);
 }
