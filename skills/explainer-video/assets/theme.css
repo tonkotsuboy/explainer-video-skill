@@ -33,6 +33,14 @@
   --caption-text: #ffffff;
   --code-bg: #1e2430;
   --code-text: #e5e9f0;
+  /* Syntax colors on --code-bg: light versions of the tones. Contrast is 5:1 or more (comment is the most muted). */
+  --code-keyword: #b3a2f2; /* purple */
+  --code-string: #86d1a8; /* green */
+  --code-comment: #8a94a6;
+  --code-number: #e8b866; /* orange */
+  --code-function: #8db0f2; /* blue */
+  --code-type: #f0a39a; /* red */
+  --code-punct: #aeb7c4;
 
   --radius-card: 28px;
   --radius-panel: 16px;

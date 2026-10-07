@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = []
+# dependencies = ["pygments"]
 # ///
 """Build a HyperFrames project from script.json and the timeline written by gen_voice.py.
 
@@ -18,6 +18,11 @@ import shutil
 import sys
 import unicodedata
 from pathlib import Path
+
+from pygments import lex
+from pygments.lexers import TextLexer, get_lexer_by_name, get_lexer_for_filename
+from pygments.token import Token
+from pygments.util import ClassNotFound
 
 ASSETS = Path(__file__).resolve().parent.parent / "assets"
 FPS, W, H = 30, 1920, 1080
@@ -37,6 +42,21 @@ ARROW_SVG = (
     'stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>'
 )
 NUMBER = re.compile(r"^(\D*?)(\d[\d,]*(?:\.\d+)?)(.*)$", re.DOTALL)
+# Pygments token -> tok-* class (colors in theme.css). First match wins, so subtypes come before parents.
+TOKEN_CLASSES = [
+    (Token.Comment, "comment"),
+    (Token.Keyword.Type, "type"),
+    (Token.Keyword, "keyword"),
+    (Token.Operator.Word, "keyword"),
+    (Token.Literal.String, "string"),
+    (Token.Literal.Number, "number"),
+    (Token.Name.Builtin, "type"),
+    (Token.Name.Class, "type"),
+    (Token.Name.Function, "function"),
+    (Token.Name.Decorator, "function"),
+    (Token.Operator, "punct"),
+    (Token.Punctuation, "punct"),
+]
 
 e = html.escape
 
@@ -51,6 +71,26 @@ def code_size(body: str) -> int:
     lines = body.split("\n")
     longest = max(sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in line) for line in lines) or 1
     return int(max(17, min(34, 860 / (longest * 0.61), 600 / (len(lines) * 1.45))))
+
+
+def highlight(body: str, lang: str | None, head: str) -> str:
+    """Return escaped code with tok-* spans, using `lang` or the file extension in `head`."""
+    opts = {"stripnl": False, "ensurenl": False}
+    if lang:
+        lexer = get_lexer_by_name(lang, **opts)
+    else:
+        try:
+            lexer = get_lexer_for_filename(re.sub(r":[\d-]+$", "", head).rsplit("/", 1)[-1], **opts)
+        except ClassNotFound:
+            lexer = TextLexer(**opts)
+    tokens = list(lex(body, lexer))
+    out = []
+    for n, (ttype, text) in enumerate(tokens):
+        cls = next((c for t, c in TOKEN_CLASSES if ttype in t), None)
+        if cls is None and ttype in Token.Name and n + 1 < len(tokens) and tokens[n + 1][1].startswith("("):
+            cls = "function"  # some lexers (TypeScript) leave function names as plain names
+        out.append(f'<span class="tok-{cls}">{e(text)}</span>' if cls else e(text))
+    return "".join(out)
 
 
 class Scene:
@@ -126,6 +166,10 @@ class Scene:
             )
             inner = f'<div class="shot">{inner}</div>'
         elif kind == "code":
+            try:
+                body = highlight(it.get("body", ""), it.get("lang"), it.get("head", ""))
+            except ClassNotFound:
+                self.fail(f"unknown lang {it['lang']!r} (use a Pygments lexer name such as typescript or python)")
             inner = (
                 f'<div class="code">{f"<div class=code-head>{head}</div>" if head else ""}<div class="code-panel">'
                 f'<pre class="code-body" style="font-size:{code_size(it.get("body", ""))}px">{body}</pre>{ring}</div></div>'

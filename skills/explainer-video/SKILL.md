@@ -76,7 +76,7 @@ AskUserQuestion で次の3つをまとめて聞く。そのあと4つ目を聞�
 - `readings`: 字幕はそのまま、音声だけ読み替える辞書。共通の読み辞書（手順5）とまとめて使われ、同じ語は台本が優先する。
 - `visual`: 図の指定。`at` は「何番目の文（0始まり）で出すか」。
   - `layout`: `grid`（カードを `cols` 列で並べ、画面の高さいっぱいに広げる）／`steps`（`step` を矢印でつなぐ横一列＋下にカード）／`split`（左に画像かコード、右にカード）。`img` と `code` はどのレイアウトでも出るが、大きく見せたいときは `split` にする。`split` の右列は「card 2枚＋短い note」程度までにする（多いと字幕に食い込む）。`steps` だけだと下が空くので、補足の `card` を足すとよい。カード本文の改行は JSON で `\n`。
-  - `kind`: `card`（見出し＋本文）／`big`（大きな数字。`value` の数字は0から数え上がる。年号など数え上げが不自然なときは `"count": false`）／`step`／`note`（横長の帯）／`img`（`src` はプロジェクトからの相対パス、例 `assets/shots/x.png`。`source` に出典。`until` でその文の後に消す）／`code`（`head` に「リポジトリ/パス:行」、`body` にコード本文。改行は JSON で `\n`。長い行があると文字が自動で小さくなる）
+  - `kind`: `card`（見出し＋本文）／`big`（大きな数字。`value` の数字は0から数え上がる。年号など数え上げが不自然なときは `"count": false`）／`step`／`note`（横長の帯）／`img`（`src` はプロジェクトからの相対パス、例 `assets/shots/x.png`。`source` に出典。`until` でその文の後に消す）／`code`（`head` に「リポジトリ/パス:行」、`body` にコード本文。改行は JSON で `\n`。長い行があると文字が自動で小さくなる。書き出し時に Pygments で色が付く。言語は `lang`（`typescript`・`python`・`ruby` など Pygments の名前）で指定し、無ければ `head` の拡張子から推定し、推定できなければ色を付けない）
   - `tone`: `blue`／`purple`／`green`／`orange`／`red`／`pink`／`gray`（色の中身は `assets/theme.css`）
   - コードを見せるシーンは、字幕と `card` で「何をしているか」を言葉で言い、識別子（関数名・変数名）を主語にしない。コードは裏付けとして横に置く。
   - 手順の矢印は「順番があるもの」だけに使う。並列なもの（例: 東京・大阪・福岡）は `grid` にする。
@@ -169,11 +169,27 @@ HYPERFRAMES_NO_TELEMETRY=1 npx hyperframes snapshot --at <秒,秒,...> --describ
 - 書類や表の画像は枠に収まるように縮む（切れない）。縦に長い画面キャプチャは必要な部分を切り出してから使う。
 - `hyperframes snapshot/render` はブラウザを使うので、sandbox で失敗したら sandbox 外で実行する。
 
-## 8. プレビューと書き出し
+## 8. 仕上げ方を選んでもらう（Studio で確認・MP4 に書き出し）
 
-- プレビュー: `HYPERFRAMES_NO_TELEMETRY=1 npx hyperframes preview --background --no-open --port=<空いている番号>` を実行し、表示された URL をユーザーに伝える。止めるときは `--stop`。
-- 書き出しは、ユーザーが MP4 を求めたときだけ: `HYPERFRAMES_NO_TELEMETRY=1 npx hyperframes render --quality looks --output out/<動画名>.mp4`（background で。1分の動画で数十秒）。
-- 書き出したら `ffprobe -v error -show_entries stream=codec_type:format=duration out/<動画名>.mp4` で長さと映像・音声の有無を確かめ、途中のコマを1〜2枚取り出して目で見る。
+build と lint（0 errors）が通り、手順7の見た目の確認が済んだら、AskUserQuestion で次の3つから選んでもらう。
+
+1. **Studio で確認する**: 作業フォルダで次を実行する。`--background` は起動したらすぐ戻り、サーバーは裏で動き続ける。
+
+   ```bash
+   HYPERFRAMES_NO_TELEMETRY=1 npx hyperframes preview --background --no-open --port=<空いている番号>
+   ```
+
+   出力の `Studio` の行の URL（`http://localhost:<番号>/#project/<フォルダ名>`）をユーザーに伝え、「ブラウザで開くと再生でき、Studio のタイムラインで直接直せます」と添える。sandbox の中では `open` でブラウザを開けないことがあるので、開いてあげようとせず URL を渡す。止めるときは `HYPERFRAMES_NO_TELEMETRY=1 npx hyperframes preview --stop`（動いているかは `--status`）。build_video.py を再実行すると `index.html`・`compositions/` は作り直されるので、Studio での直しを残したいときは台本か `custom/` にも反映する。
+
+2. **MP4 に書き出す**: 保存先を聞く（既定は `~/Desktop/<動画名>.mp4`）。次を background で実行する（1分の動画で数十秒）。
+
+   ```bash
+   HYPERFRAMES_NO_TELEMETRY=1 npx hyperframes render --quality looks --output <保存先>
+   ```
+
+   書き出したら `ffprobe -v error -show_entries stream=codec_type:format=duration <保存先>` で長さと映像・音声の有無を確かめ、途中のコマを1〜2枚取り出して目で見る。
+
+3. **両方**: 1 の URL を先に伝え、そのあいだに 2 を書き出す。
 
 ## 9. 残す
 

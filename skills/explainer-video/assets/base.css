@@ -223,6 +223,27 @@ body {
   line-height: 1.45;
   font-family: var(--font-mono);
 }
+.tok-keyword {
+  color: var(--code-keyword);
+}
+.tok-string {
+  color: var(--code-string);
+}
+.tok-comment {
+  color: var(--code-comment);
+}
+.tok-number {
+  color: var(--code-number);
+}
+.tok-function {
+  color: var(--code-function);
+}
+.tok-type {
+  color: var(--code-type);
+}
+.tok-punct {
+  color: var(--code-punct);
+}
 
 .shot {
   display: flex;

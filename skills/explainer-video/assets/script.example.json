@@ -112,6 +112,7 @@
             "at": 0,
             "kind": "code",
             "head": "example/shop/src/orders.ts:76-84",
+            "lang": "typescript",
             "body": "export function toShip(orders: Order[]) {\n  return orders.filter(\n    (o) => o.status === \"paid\" &&\n      !o.shippedAt,\n  );\n}"
           },
           {
