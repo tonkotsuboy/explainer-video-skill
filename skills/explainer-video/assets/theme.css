@@ -1,0 +1,105 @@
+/*
+ * Theme. Every color, font, radius and size lives here; base.css only reads these variables.
+ * To change the look, edit this file and keep the variable names and the .tone-* classes.
+ */
+
+@font-face {
+  font-family: "Theme Sans";
+  font-weight: 400;
+  src: local("HiraginoSans-W3"), local("Hiragino Sans");
+}
+@font-face {
+  font-family: "Theme Sans";
+  font-weight: 700;
+  src: local("HiraginoSans-W6"), local("Hiragino Sans");
+}
+@font-face {
+  font-family: "Theme Mono";
+  src: local("Menlo-Regular"), local("SFMono-Regular");
+}
+
+:root {
+  --font: "Theme Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+  --font-mono: "Theme Mono", monospace;
+
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --text: #1c2330;
+  --muted: #5a6475;
+  --border: #dfe3ea;
+  --accent: #2f5fd0; /* title badge */
+  --on-accent: #ffffff;
+  --caption-bg: rgb(28 35 48 / 90%);
+  --caption-text: #ffffff;
+  --code-bg: #1e2430;
+  --code-text: #e5e9f0;
+
+  --radius-card: 28px;
+  --radius-panel: 16px;
+  --radius-full: 9999px;
+  --space-xs: 16px;
+  --space-sm: 24px;
+  --space-md: 32px;
+  --space-lg: 48px;
+
+  --line-heading: 1.3;
+  --line-body: 1.45;
+  --size-title: 64px;
+  --size-head: 44px;
+  --size-body: 36px;
+  --size-big: 84px;
+  --size-caption: 44px;
+  --size-small: 26px;
+  --weight-bold: 700;
+  --weight-regular: 400;
+
+  --shadow: 0 6px 18px rgb(0 0 0 / 6%);
+  --shadow-lift: 0 18px 40px rgb(0 0 0 / 12%);
+}
+
+/*
+ * Tones used by script.json "tone". --tone = heading text, --tone-line = border,
+ * --tone-bg = fill, --tone-strong = focus ring.
+ */
+.tone-blue {
+  --tone: #2f5fd0;
+  --tone-line: #2f5fd0;
+  --tone-bg: #e8eefc;
+  --tone-strong: #2f5fd0;
+}
+.tone-purple {
+  --tone: #5b3fc4;
+  --tone-line: #5b3fc4;
+  --tone-bg: #ece7fd;
+  --tone-strong: #5b3fc4;
+}
+.tone-green {
+  --tone: #18865c;
+  --tone-line: #18865c;
+  --tone-bg: #e3f4ec;
+  --tone-strong: #18865c;
+}
+.tone-orange {
+  --tone: #a86f00;
+  --tone-line: #a86f00;
+  --tone-bg: #fbf0d9;
+  --tone-strong: #a86f00;
+}
+.tone-red {
+  --tone: #c2392f;
+  --tone-line: #c2392f;
+  --tone-bg: #fbe6e3;
+  --tone-strong: #c2392f;
+}
+.tone-pink {
+  --tone: #c2306f;
+  --tone-line: #c2306f;
+  --tone-bg: #fbe4ee;
+  --tone-strong: #c2306f;
+}
+.tone-gray {
+  --tone: #8a93a3;
+  --tone-line: #8a93a3;
+  --tone-bg: #eef1f6;
+  --tone-strong: #8a93a3;
+}
