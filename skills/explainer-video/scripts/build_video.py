@@ -8,6 +8,7 @@
 Writes index.html (one sub-composition slot per scene), compositions/<scene>.html and
 assets/gsap.min.js into the current folder. Titles and visuals come from script.json, so a
 visual-only edit needs no new voices. Run gen_voice.py again when sentences change.
+The look comes from ./theme.css when the folder has one, otherwise from the skill's assets/theme.css.
 Usage: uv run build_video.py [script.json] [timeline.json]
 """
 
@@ -29,6 +30,8 @@ ASSETS = Path(__file__).resolve().parent.parent / "assets"
 FPS, W, H = 30, 1920, 1080
 KINDS = {"card", "big", "step", "note", "img", "code"}
 LAYOUTS = {"grid", "steps", "split", "stack"}
+MAX_CHARS = 36  # a caption wraps at about 36 full-width characters; half-width counts 0.5
+SCENE_ID = re.compile(r"^[a-z0-9][a-z0-9-]*$")  # used in file names and element ids
 # ponytail: measured break-even with 1-2 line cards below (a 1.9:1 image is half as wide in stack);
 # tune per scene with an explicit layout if it misjudges.
 STACK_ASPECT = 3.0  # a split image wider than this (width / height) is laid out as stack
@@ -70,10 +73,15 @@ def sec(frames: int) -> float:
     return round(frames / FPS, 3)
 
 
+def width(text: str) -> float:
+    """Count full-width characters as 1 and half-width ones as 0.5."""
+    return sum(1 if unicodedata.east_asian_width(c) in "WFA" else 0.5 for c in text)
+
+
 def code_size(body: str) -> int:
     """Shrink code so the longest line fits the split column and every line fits the height."""
     lines = body.split("\n")
-    longest = max(sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in line) for line in lines) or 1
+    longest = max(width(line) * 2 for line in lines) or 1
     return int(max(17, min(34, 860 / (longest * 0.61), 600 / (len(lines) * 1.45))))
 
 
@@ -110,15 +118,47 @@ class Scene:
         self.ends = [*self.starts[1:], self.dur]
         self.js: list[str] = []
         self.seen: dict[int, int] = {}
+        self.check()
 
     def fail(self, msg: str) -> None:
         """Stop with a message that names the scene."""
         sys.exit(f"{self.id}: {msg}")
 
+    def warn(self, msg: str) -> None:
+        """Print a warning that names the scene and keep building."""
+        print(f"warning: {self.id}: {msg}")
+
+    def check(self) -> None:
+        """Warn about sentences and items that will not show as written, and fall back to something that renders."""
+        last = len(self.sentences) - 1
+        for n, s in enumerate(self.sentences):
+            if width(s["text"]) > MAX_CHARS:
+                self.warn(f"sentence {n} is {width(s['text']):g} characters (max {MAX_CHARS}); split it")
+        if "component" in self.visual:
+            return
+        if self.visual.get("layout", "grid") not in LAYOUTS:
+            self.warn(f"unknown layout {self.visual['layout']!r}, using grid")
+            self.visual["layout"] = "grid"
+        for n, it in enumerate(self.visual.get("items", [])):
+            if it.get("kind", "card") not in KINDS:
+                self.warn(f"item {n}: unknown kind {it['kind']!r}, shown as card")
+                it["kind"] = "card"
+            if it.get("tone", "blue") not in self.tones:
+                self.warn(f"item {n}: unknown tone {it['tone']!r}, using blue (theme.css has {sorted(self.tones)})")
+                it["tone"] = "blue"
+            at = it.get("at", 0)
+            if not 0 <= at <= last:
+                it["at"] = min(max(at, 0), last)
+                self.warn(f"item {n}: at={at} is out of range (0..{last}), using {it['at']}")
+            until = it.get("until")
+            if until is not None and not it.get("at", 0) <= until <= last:
+                self.warn(f"item {n}: until={until} must be between at and {last}; ignored")
+                del it["until"]
+            if it.get("kind") == "img" and not Path(it.get("src", "")).is_file():
+                self.warn(f"item {n}: image not found: {it.get('src', '')}")
+
     def start(self, at: int) -> float:
         """Return when an item that appears on sentence `at` starts, staggering items on the same sentence."""
-        if not 0 <= at < len(self.sentences):
-            self.fail(f"at={at} is out of range (0..{len(self.sentences) - 1})")
         k = self.seen.get(at, 0)
         self.seen[at] = k + 1
         return round(self.starts[at] + k * STAGGER, 3)
@@ -148,12 +188,7 @@ class Scene:
 
     def item(self, it: dict, n: int, fill: bool) -> str:
         """Render one board item and add its tweens."""
-        kind, at = it.get("kind", "card"), it.get("at", 0)
-        if kind not in KINDS:
-            self.fail(f"unknown kind {kind!r}")
-        tone = it.get("tone", "blue")
-        if tone not in self.tones:
-            self.fail(f"unknown tone {tone!r} (theme.css has {sorted(self.tones)})")
+        kind, at, tone = it.get("kind", "card"), it.get("at", 0), it.get("tone", "blue")
         sid = f"{self.id}-i{n}"
         t = self.start(at)
         head = e(it.get("head", ""))
@@ -161,8 +196,6 @@ class Scene:
         ring = f'<div class="ring" id="{sid}-ring"></div>'
         if kind == "img":
             src = it.get("src", "")
-            if not Path(src).is_file():
-                self.fail(f"image not found: {src}")
             inner = (
                 (f'<div class="shot-label">{head}</div>' if head else "")
                 + f'<div class="shot-frame"><img src="{e(src)}" alt="{head}"></div>'
@@ -199,7 +232,7 @@ class Scene:
             self.focus(f"{sid}-ring", at, t)
         self.js.append(f'tl.fromTo("#{sid}",{SOFT_REVEAL if kind in ("img", "code") else REVEAL},{t});')
         until = it.get("until")
-        if until is not None and at <= until < len(self.sentences) - 1:
+        if until is not None and until < len(self.sentences) - 1:
             self.js.append(
                 f'tl.fromTo("#{sid}-slot",{{opacity:1}},{{opacity:0,duration:0.3,ease:"power2.out"}},{self.starts[until + 1]});'
             )
@@ -217,8 +250,6 @@ class Scene:
         if comp := self.visual.get("component"):
             return self.custom(comp)
         layout = self.visual.get("layout", "grid")
-        if layout not in LAYOUTS:
-            self.fail(f"unknown layout {layout!r}")
         items = list(enumerate(self.visual.get("items", [])))
         first = next((n for n, it in items if it.get("kind", "card") != "note"), len(items))
 
@@ -269,8 +300,9 @@ class Scene:
         if not path.is_file():
             self.fail(f"custom scene not found: {path}")
         src = path.read_text(encoding="utf-8")
-        self.js.extend(re.findall(r"<script>(.*?)</script>", src, re.DOTALL))
-        return re.sub(r"<script>.*?</script>", "", src, flags=re.DOTALL)
+        script = re.compile(r"<script\b[^>]*>(.*?)</script>", re.DOTALL | re.IGNORECASE)
+        self.js.extend(script.findall(src))
+        return script.sub("", src)
 
     def html(self) -> str:
         """Return the sub-composition file for this scene."""
@@ -292,10 +324,8 @@ class Scene:
                 "const tl = gsap.timeline({ paused: true });",
                 f"const S = {json.dumps(self.starts)}, E = {json.dumps(self.ends)};",
                 f'tl.fromTo("#{self.id}-inner",{{opacity:0,y:16}},{{opacity:1,y:0,duration:{SCENE_IN},ease:"power3.out"}},0);',
-                (
-                    f'tl.fromTo("#{self.id}-content",{{opacity:1}},{{opacity:0,duration:{SCENE_OUT},ease:"power2.in"}},'
-                    f"{round(self.dur - SCENE_OUT - 0.05, 3)});"
-                ),
+                f'tl.fromTo("#{self.id}-content",{{opacity:1}},{{opacity:0,duration:{SCENE_OUT},ease:"power2.in"}},'
+                f"{round(self.dur - SCENE_OUT - 0.05, 3)});",
                 *self.js,
                 f'window.__timelines["{self.id}"] = tl;',
             ]
@@ -319,11 +349,13 @@ def main() -> None:
     script_path, timeline_path = ([*sys.argv[1:], "script.json", "timeline.json"])[:2]
     script = json.loads(Path(script_path).read_text(encoding="utf-8"))
     timeline = {s["id"]: s for s in json.loads(Path(timeline_path).read_text(encoding="utf-8"))}
-    theme = (ASSETS / "theme.css").read_text(encoding="utf-8")
+    theme_path = Path("theme.css") if Path("theme.css").is_file() else ASSETS / "theme.css"
+    print(f"theme: {theme_path}")
+    theme = theme_path.read_text(encoding="utf-8")
     tones = set(re.findall(r"^\.tone-([a-z0-9-]+)", theme, re.MULTILINE))
     gsap = Path("node_modules/gsap/dist/gsap.min.js")
     if not gsap.is_file():
-        sys.exit("node_modules/gsap not found. Run: npm i -D hyperframes gsap")
+        sys.exit("node_modules/gsap not found. Run: npm i -D hyperframes@0.8.139 gsap")
     Path("assets").mkdir(exist_ok=True)
     shutil.copy(gsap, "assets/gsap.min.js")
     comps = Path("compositions")
@@ -333,6 +365,8 @@ def main() -> None:
 
     slots, settled, t = [], [], 0.0
     for i, sc in enumerate(script["scenes"], 1):
+        if not SCENE_ID.match(sc["id"]):
+            sys.exit(f"scene id {sc['id']!r} must be lowercase letters, digits and hyphens (e.g. s01-opening).")
         tl = timeline.get(sc["id"])
         if tl is None or [s["text"] for s in tl["sentences"]] != sc["sentences"]:
             sys.exit(f"{sc['id']}: sentences differ from {timeline_path}. Run gen_voice.py again.")

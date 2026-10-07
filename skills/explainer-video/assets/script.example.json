@@ -2,8 +2,7 @@
   "speaker": 0,
   "speedScale": 1.05,
   "readings": {
-    "SaaS": "サース",
-    "1年半": "いちねんはん"
+    "SaaS": "サース"
   },
   "scenes": [
     {

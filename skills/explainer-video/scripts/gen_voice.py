@@ -6,13 +6,17 @@
 """Synthesize every sentence in script.json with AivisSpeech and write the timeline.
 
 Writes <voice dir>/<scene>/<n>.wav and timeline.json in the current folder (the video project).
-Readings come from references/readings.json merged with script.json readings (script wins).
+Only sentences whose spoken text, speaker or speedScale changed are synthesized again
+(<voice dir>/cache.json remembers what each wav was made from); timeline.json is always rebuilt.
+Readings come from the dictionaries merged with script.json readings (see yomi.py).
 Usage: uv run gen_voice.py [script.json] [timeline.json] [voice dir]
 """
 
+import hashlib
 import json
 import struct
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -25,11 +29,20 @@ DEFAULTS = ["script.json", "timeline.json", "assets/voice"]
 
 
 def post(path: str, params: dict, body: bytes | None = None) -> bytes:
-    """POST to the local AivisSpeech Engine."""
+    """POST to the local AivisSpeech Engine, or exit with a message saying what to fix."""
     url = f"{BASE}{path}?{urllib.parse.urlencode(params)}"
     req = urllib.request.Request(url, data=body or b"", method="POST", headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=120) as r:  # nosec B310
-        return r.read()
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:  # nosec B310
+            return r.read()
+    except urllib.error.HTTPError as err:
+        detail = err.read().decode("utf-8", "replace")[:300]
+        sys.exit(
+            f"AivisSpeech Engine returned {err.code} for {path}: {detail}\n"
+            f"Check the style ID (speaker={params.get('speaker')}) with list_speakers.py."
+        )
+    except OSError as err:  # URLError, refused connection, timeout
+        sys.exit(f"Cannot reach AivisSpeech Engine at {BASE} ({err}). Start AivisSpeech and run again.")
 
 
 def wav_seconds(b: bytes) -> float:
@@ -49,24 +62,36 @@ def main() -> None:
     """Generate voices and the timeline."""
     script, timeline_path, voice = (sys.argv[1:] + DEFAULTS[len(sys.argv) - 1 :])[:3]
     cfg = json.loads(Path(script).read_text(encoding="utf-8"))
-    spk = cfg["speaker"]
+    spk, speed = cfg["speaker"], cfg.get("speedScale", 1.05)
     tts_text = compile_readings(cfg.get("readings", {}))
-    timeline = []
+    cache_path = Path(voice) / "cache.json"
+    cache = json.loads(cache_path.read_text(encoding="utf-8")) if cache_path.exists() else {}
+    timeline, made, total = [], 0, 0
     for sc in cfg["scenes"]:
         Path(f"{voice}/{sc['id']}").mkdir(parents=True, exist_ok=True)
         t, items = HEAD, []
         for n, text in enumerate(sc["sentences"]):
-            q = json.loads(post("/audio_query", {"text": tts_text(text), "speaker": spk}))
-            q["speedScale"] = cfg.get("speedScale", 1.05)
-            wav = post("/synthesis", {"speaker": spk}, json.dumps(q).encode())
+            spoken = tts_text(text)
+            key = hashlib.sha256(json.dumps([spoken, spk, speed], ensure_ascii=False).encode()).hexdigest()
             path = f"{voice}/{sc['id']}/{n:02d}.wav"
-            Path(path).write_bytes(wav)
+            if cache.get(path) == key and Path(path).is_file():
+                wav = Path(path).read_bytes()
+            else:
+                q = json.loads(post("/audio_query", {"text": spoken, "speaker": spk}))
+                q["speedScale"] = speed
+                wav = post("/synthesis", {"speaker": spk}, json.dumps(q).encode())
+                Path(path).write_bytes(wav)
+                cache[path] = key
+                cache_path.write_text(json.dumps(cache, indent=1), encoding="utf-8")
+                made += 1
+            total += 1
             frames = int(wav_seconds(wav) * FPS + 0.999)
             items.append({"text": text, "file": path, "from": t, "frames": frames})
             t += frames + GAP
         timeline.append({"id": sc["id"], "durationInFrames": t + TAIL, "sentences": items})
         print(sc["id"], round((t + TAIL) / FPS, 1), "s")
     Path(timeline_path).write_text(json.dumps(timeline, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"synthesized {made} of {total} sentences (the rest were unchanged)")
     print("total", round(sum(s["durationInFrames"] for s in timeline) / FPS / 60, 2), "min")
 
 

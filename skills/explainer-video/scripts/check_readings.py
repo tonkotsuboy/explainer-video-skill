@@ -6,33 +6,30 @@
 """Print the kana AivisSpeech actually pronounces for each sentence in a script.
 
 The "kana" field of audio_query echoes the input, so join accent_phrases[].moras[].text instead.
-Readings come from references/readings.json merged with script.json readings (script wins).
-Usage: uv run check_readings.py script.json [scene id prefix ...]
+Readings come from the dictionaries merged with script.json readings (see yomi.py).
+Usage: uv run check_readings.py [script.json] [scene id prefix ...]
 """
 
 import json
 import sys
-import urllib.parse
-import urllib.request
 from pathlib import Path
 
+from gen_voice import post
 from yomi import compile_readings
-
-BASE = "http://127.0.0.1:10101"
 
 
 def main() -> None:
     """Print each sentence with its pronounced kana."""
-    cfg = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-    only = tuple(sys.argv[2:])
+    args = sys.argv[1:]
+    script = args.pop(0) if args and args[0].endswith(".json") else "script.json"
+    cfg = json.loads(Path(script).read_text(encoding="utf-8"))
+    only = tuple(args)
     tts_text = compile_readings(cfg.get("readings", {}))
     for sc in cfg["scenes"]:
         if only and not sc["id"].startswith(only):
             continue
         for s in sc["sentences"]:
-            url = f"{BASE}/audio_query?" + urllib.parse.urlencode({"text": tts_text(s), "speaker": cfg["speaker"]})
-            with urllib.request.urlopen(urllib.request.Request(url, data=b"", method="POST")) as r:  # nosec B310
-                q = json.load(r)
+            q = json.loads(post("/audio_query", {"text": tts_text(s), "speaker": cfg["speaker"]}))
             kana = "".join("".join(m["text"] for m in ap["moras"]) for ap in q["accent_phrases"])
             print(f"{sc['id']}\t{s}\n\t{kana}")
 
