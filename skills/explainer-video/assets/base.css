@@ -56,6 +56,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
+  container-type: size;
 }
 .steps {
   display: flex;
@@ -90,7 +91,8 @@ body {
   flex-direction: column;
   gap: 14px;
 }
-.split {
+.split,
+.stack {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -101,7 +103,29 @@ body {
   min-width: 0;
   position: relative;
 }
-.split-left > .slot {
+/* An image column as wide as the image is at full height (104px = label + source). */
+.split.fit > .split-left {
+  flex: 0 0 clamp(36%, calc(var(--ar) * (100cqh - 104px)), 62%);
+}
+.stack {
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+.stack-media {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+.stack-row {
+  display: flex;
+  gap: var(--space-sm);
+}
+.stack-row > * {
+  flex: 1;
+  min-width: 0;
+}
+.split-left > .slot,
+.stack-media > .slot {
   position: absolute;
   inset: 0;
 }
@@ -275,7 +299,7 @@ body {
   color: var(--muted);
 }
 
-.cap {
+.caption {
   position: absolute;
   left: 100px;
   right: 100px;

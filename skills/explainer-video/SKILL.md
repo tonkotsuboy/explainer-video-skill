@@ -20,17 +20,20 @@ HyperFrames は HTML と GSAP のタイムラインから動画を書き出す�
 
 ## 0. 前提を確かめる
 
-次の4つを確かめる。
+次の5つを確かめる。
 
 ```bash
 node -v                                   # 22 以上
 uv --version
 ffmpeg -version | head -1
 curl -s http://127.0.0.1:10101/version    # AivisSpeech Engine
+df -h .                                   # 作業フォルダの空き容量
 ```
 
 - Node.js・uv・ffmpeg のどれかが無いときは、`brew install node uv ffmpeg` を示し、実行してよいかをユーザーに聞いてから実行する。
 - AivisSpeech Engine が応答しないときは、<https://aivis-project.com/> から入れて起動するよう案内して止まる。話者の一覧は `uv run <skill>/scripts/list_speakers.py` で見られる。
+- 空き容量（`df -h .` の Avail）が 2GB を切っていたら、ユーザーに空けてもらってから進める。HyperFrames の `render` は空きが 1GB を切ると書き出しを拒否する。
+- **sandbox の外で実行するもの**: `hyperframes check`・`snapshot`・`render` はヘッドレスブラウザを使い、sandbox の中では `mach_port ... Permission denied` で落ちる。最初から sandbox の外で実行する。`npm i` と `uv run --with pymupdf`（PDF の画像化）はネットワークが要る（npm のレジストリと pypi.org・files.pythonhosted.org。`allowed_domains` に足すか sandbox の外で実行する）。
 - 音声は MCP を使わず、`/audio_query` → `/synthesis` を直接呼ぶ（`gen_voice.py` がやる）。
 - HyperFrames は既定で匿名の利用状況を PostHog に送るので、すべての `hyperframes` コマンドに `HYPERFRAMES_NO_TELEMETRY=1` を付ける（環境変数は設定ファイルより優先される）。`snapshot` は `GEMINI_API_KEY` があると画像を Gemini に送るので、`--describe false` も付ける。`hyperframes feedback` は実行しない。
 - HyperFrames の公式スキル（`hyperframes-core` など）が入っていれば先に読む。動きは GSAP の止めたタイムライン（`paused: true`）で作る。CSS の transition / animation は書き出しで動かない。
@@ -51,15 +54,27 @@ AskUserQuestion で次の3つをまとめて聞く。そのあと4つ目を聞�
 | 意思決定者               | 結論と数字を先に。判断に要る論点と未決事項を明示                                    |
 | 専門職                   | 用語・制度・数値の正確さを優先。根拠の資料名を画面に出す                            |
 
-## 2. 事実を集める
+## 2. 作業フォルダを作る
+
+集めた画像や台本の置き場所を、先に作っておく。
+
+```bash
+mkdir -p <作業フォルダ>/<動画名>/assets/shots && cd <作業フォルダ>/<動画名>
+cp -n <skill>/assets/script.example.json script.json   # -n: 既にある台本は上書きしない
+```
+
+以降のコマンドは、すべてこのフォルダで実行する。
+
+## 3. 事実を集める
 
 - 推測で台本を書かない。公式資料や手元の資料で裏取りした事実シートを先に作る。調べものが多いときはサブエージェントに分けて並列にする。
 - 確かめられないことは、言い切らずに「未公表」「はっきりしない」と言う。
+- 資料どうし（例: 社内資料と公式資料）で食い違う事実や、裏取りに要る MCP が使えないときは、片方の資料だけを信じて進めない。事実シート（`facts.md`）でその事実に「要確認」と書き、ユーザーに伝える。
 - **受け取ったコードは必ず読む。** 説明する仕組みの入口（エントリポイント・主要な関数・データの流れ）を追い、動画で見せる抜粋を5〜20行ずつ選ぶ。抜粋は実物からコピーし、`リポジトリ/パス:開始行-終了行` とコミット SHA（`git rev-parse HEAD`）を控える。読んでいないコードについて推測で語らない。
 - 受け取った資料（PDF・Notion・Slack など）も読み、事実シートに出典付きで入れる。
 - 実物の画面・書類があると格段に分かりやすい（「言葉だけでは分からない」と言われやすい）。PR に貼られた動作確認キャプチャ、公式 PDF のページ（PyMuPDF で画像化して必要部分を切り出す）、モックの画像などを `assets/shots/` に集め、`assets/shots/index.md` に出典を書く。個人情報や実在の ID が写っているものは使わないか、架空の値に置き換える。
 
-## 3. 台本を書く（script.json）
+## 4. 台本を書く（script.json）
 
 雛形は `<skill>/assets/script.example.json`。
 
@@ -67,28 +82,31 @@ AskUserQuestion で次の3つをまとめて聞く。そのあと4つ目を聞�
 
 - どのシーンにも、図かキャプチャを1つ以上置く。字幕だけのシーンや、文字を並べただけのシーンは作らない。
 - 中身に合わせて図の形を選ぶ。数字は `big`、手順や時間の流れは `steps` か時間軸、比較は表や左右に並べた図、関係は図解にする。
-- 実物があるものは、説明より先に実物を見せる。書類、画面、ファイルの中身、コードが対象になる。動画全体で、少なくとも3割のシーンに実物のキャプチャかコード抜粋を入れる。集め方は手順2を参照。
+- 実物があるものは、説明より先に実物を見せる。書類、画面、ファイルの中身、コードが対象になる。動画全体で、少なくとも3割のシーンに実物のキャプチャかコード抜粋を入れる。集め方は手順3を参照。
 - 図の種類が下の部品で足りないとき（時間軸、対応表、注釈付きの書類など）は、自作の図を作る（下の `component`）。
 
 台本の項目:
 
-- `sentences`: 1要素＝字幕1枚＝音声1本。**1文36字以内**（半角は0.5字で数える）。字幕は約36字で折り返し、2行になると図の下端に重なる。長い文は2つに分ける。書き方は手順4のチェックリストに従う。
-- `readings`: 字幕はそのまま、音声だけ読み替える辞書。共通の読み辞書（手順5）とまとめて使われ、同じ語は台本が優先する。
+- `sentences`: 1要素＝字幕1枚＝音声1本。**1文36字以内**（半角は0.5字で数える）。字幕は約36字で折り返し、2行になると図の下端に重なる。長い文は2つに分ける。書き方は手順5のチェックリストに従う。
+- `readings`: 字幕はそのまま、音声だけ読み替える辞書。共通の読み辞書（手順6）とまとめて使われ、同じ語は台本が優先する。
 - `visual`: 図の指定。`at` は「何番目の文（0始まり）で出すか」。
-  - `layout`: `grid`（カードを `cols` 列で並べ、画面の高さいっぱいに広げる）／`steps`（`step` を矢印でつなぐ横一列＋下にカード）／`split`（左に画像かコード、右にカード）。`img` と `code` はどのレイアウトでも出るが、大きく見せたいときは `split` にする。`split` の右列は「card 2枚＋短い note」程度までにする（多いと字幕に食い込む）。`steps` だけだと下が空くので、補足の `card` を足すとよい。カード本文の改行は JSON で `\n`。
+  - `layout`: `grid`（カードを `cols` 列で並べ、画面の高さいっぱいに広げる）／`steps`（`step` を矢印でつなぐ横一列＋下にカード）／`split`（左に画像かコード、右にカード）／`stack`（上に画像かコードを横幅いっぱいに、下にカードと note を横一列）。`img` と `code` はどのレイアウトでも出るが、大きく見せたいときは `split` か `stack` にする。
+  - 画像の形でレイアウトを選ぶ。縦長・正方形に近い画像は `split`。横長の画像も、まず `split` でよい（左の列が画像の縦横比に合わせて広がり、高さいっぱいに表示される）。横が縦の3倍を超える帯状の画像は `stack` にする（`split` と書いても build_video.py が `stack` に切り替える）。`stack` は下のカードが画像の高さを削るので、16:9 前後の画像ではかえって小さくなる。文字の多い画面キャプチャや書類は、レイアウトを選ぶ前に、話に要る部分だけを切り出す。`split` の右列は「card 2枚＋短い note」程度までにする（多いと字幕に食い込む）。`steps` だけだと下が空くので、補足の `card` を足すとよい。カード本文の改行は JSON で `\n`。
+  - `note` の位置は `items` の並び順で決まる。ほかのどの項目よりも前に書いた `note` は上（`split` では右列の上）に、それ以外の `note` は下に出る。最初の文で用語の説明を出し、カードはあとから出す、というときは `note` を先頭に書く。
   - `kind`: `card`（見出し＋本文）／`big`（大きな数字。`value` の数字は0から数え上がる。年号など数え上げが不自然なときは `"count": false`）／`step`／`note`（横長の帯）／`img`（`src` はプロジェクトからの相対パス、例 `assets/shots/x.png`。`source` に出典。`until` でその文の後に消す）／`code`（`head` に「リポジトリ/パス:行」、`body` にコード本文。改行は JSON で `\n`。長い行があると文字が自動で小さくなる。書き出し時に Pygments で色が付く。言語は `lang`（`typescript`・`python`・`ruby` など Pygments の名前）で指定し、無ければ `head` の拡張子から推定し、推定できなければ色を付けない）
   - `tone`: `blue`／`purple`／`green`／`orange`／`red`／`pink`／`gray`（色の中身は `assets/theme.css`）
   - コードを見せるシーンは、字幕と `card` で「何をしているか」を言葉で言い、識別子（関数名・変数名）を主語にしない。コードは裏付けとして横に置く。
   - 手順の矢印は「順番があるもの」だけに使う。並列なもの（例: 東京・大阪・福岡）は `grid` にする。
   - **自作の図**: `visual` を `{"component": "<名前>"}` にし、プロジェクトに `custom/<名前>.html` を置く。中身は図の HTML と `<script>` で、script の中では `tl`（そのシーンのタイムライン）、`S`（各文の開始秒の配列）、`E`（各文の終了秒の配列）が使える。例 `tl.fromTo("#box", {opacity: 0, y: 24}, {opacity: 1, y: 0, duration: 0.6, ease: "expo.out"}, S[1]);`。色やフォントは `theme.css` の変数（`var(--text)` など）か `tone-*` クラスを使う。**別の動画で使い回すときは、文の数と順番を元の台本と同じにする**（図の出るタイミングが文の番号に結びついているため）。
 
-## 4. 読みやすさを確かめる（別のサブエージェントに読ませる）
+## 5. 読みやすさを確かめる（別のサブエージェントに読ませる）
 
 台本を書いた本人は、自分の文の分かりにくさに気づきにくい。**台本を書いたのとは別のサブエージェント**を立て、全文を読ませて直し案を返させる。
 
 - サブエージェントには `script.json` のパスと下のチェックリストを渡す。`yomiyasu` スキルが使える環境なら、それも invoke させる。
 - 返事は「文の場所｜元の文｜直した文｜理由｜必須か任意か」の表で受け取る。
 - 必須の指摘を台本に反映し、もう一度読ませる。必須の指摘が無くなるまで繰り返す（最大2周）。
+- 長さとの兼ね合い: 全体の長さは、頼まれた長さの ±15% に収める。直しで文が増えて超えるときは、直しを捨てずに、優先度の低い文を削るか、シーンをまとめる。目安の文数で見積もり、手順7で音声を作ったら `gen_voice.py` が最後に出す `total`（分）で測り直す。外れていたら台本を直して gen_voice.py をやり直してから build する。
 
 ナレーションのチェックリスト（耳で聞いて分かるか）:
 
@@ -97,10 +115,10 @@ AskUserQuestion で次の3つをまとめて聞く。そのあと4つ目を聞�
 - 1文に1つのことだけ言う。
 - 主語をはっきり書く。
 - 1文30〜45字。字幕が2行を超えない。
-- 数字と単位が自然に読めるか（「3つ」「1行」「2022年」など。読みは手順5で確かめる）。
+- 数字と単位が自然に読めるか（「3つ」「1行」「2022年」など。読みは手順6で確かめる）。
 - 比喩の動詞・絵文字・ダッシュ・文末のコロンを使わない。
 
-## 5. 読みを確かめる
+## 6. 読みを確かめる
 
 `uv run <skill>/scripts/check_readings.py script.json` で、実際に発音されるカタカナを全文出す。`audio_query` の `kana` は入力がそのまま返るので確認に使えない。
 
@@ -138,22 +156,25 @@ AskUserQuestion で次の3つをまとめて聞く。そのあと4つ目を聞�
 
 - （Ⅱ）を「に」と読ませると、「（Ⅱ）に」「（Ⅱ）には」が助詞とまぎれる。台本で「（Ⅱ）に」の形を避けるか、「区分に」のように名詞を挟む。
 
-## 6. プロジェクトを作って音声を合成する
+## 7. 音声を合成して書き出す
+
+手順2の作業フォルダで実行する。
 
 ```bash
-mkdir -p <作業フォルダ>/<動画名> && cd <作業フォルダ>/<動画名>
-cp <skill>/assets/script.example.json script.json   # 書いた台本で置き換える
 npm init -y && npm i -D hyperframes gsap            # ネットワークが要る。sandbox で落ちたら sandbox 外で
 uv run <skill>/scripts/gen_voice.py                 # assets/voice/<シーン>/<n>.wav と timeline.json
 uv run <skill>/scripts/build_video.py               # index.html と compositions/<シーン>.html
-HYPERFRAMES_NO_TELEMETRY=1 npx hyperframes lint     # 0 errors を確かめる
+HYPERFRAMES_NO_TELEMETRY=1 npx hyperframes lint
 ```
+
+- **lint の合格ライン: 0 errors、0 warnings。** build_video.py が書き出すファイルは warning も出ない。warning が出たら、まず `custom/` の自作の図を疑い、lint の `Fix:` に従って直す（例: 同じ要素に `fromTo` を2回以上かけるときは、いちばん早いもの以外に `immediateRender: false` を付ける）。直せない warning は、内容と理由を最終報告に書く。
+- `gen_voice.py` の最後の `total` が、頼まれた長さの ±15% に入っているかを確かめる（手順5）。
 
 - `gen_voice.py` は、文ごとに wav を書き、長さを測ってシーンの尺（頭0.5秒、文の間0.3秒、末尾0.8秒）を決め、`timeline.json` に書く。文を直したら gen_voice.py から再実行する。
 - `build_video.py` は、見出しと図の指定を `script.json` から読む。図だけを直したときは build_video.py だけ再実行すればよい（文が timeline.json と食い違うと止まる）。
 - 書き出したファイル（`index.html`・`compositions/`）は手で直さない。直すのは台本・`custom/`・`<skill>/assets/*.css`。
 
-## 7. 見た目を確かめる
+## 8. 見た目を確かめる
 
 ```bash
 HYPERFRAMES_NO_TELEMETRY=1 npx hyperframes check
@@ -166,12 +187,12 @@ HYPERFRAMES_NO_TELEMETRY=1 npx hyperframes snapshot --at <秒,秒,...> --describ
 既知の落とし穴:
 
 - シーンの背景は不透明のまま、中身だけをフェードしている。背景ごと消すと切り替わりで透明なコマができる。
-- 書類や表の画像は枠に収まるように縮む（切れない）。縦に長い画面キャプチャは必要な部分を切り出してから使う。
-- `hyperframes snapshot/render` はブラウザを使うので、sandbox で失敗したら sandbox 外で実行する。
+- 書類や表の画像は枠に収まるように縮む（切れない）。縦に長い画面キャプチャは必要な部分を切り出してから使う。横長の画像の文字が小さいときも、レイアウトを変えるより先に切り出しを考える（手順4）。
+- `hyperframes check/snapshot/render` はブラウザを使うので、sandbox の外で実行する（手順0）。
 
-## 8. 仕上げ方を選んでもらう（Studio で確認・MP4 に書き出し）
+## 9. 仕上げ方を選んでもらう（Studio で確認・MP4 に書き出し）
 
-build と lint（0 errors）が通り、手順7の見た目の確認が済んだら、AskUserQuestion で次の3つから選んでもらう。
+build と lint（0 errors、0 warnings）が通り、手順8の見た目の確認が済んだら、AskUserQuestion で次の3つから選んでもらう。
 
 1. **Studio で確認する**: 作業フォルダで次を実行する。`--background` は起動したらすぐ戻り、サーバーは裏で動き続ける。
 
@@ -191,7 +212,7 @@ build と lint（0 errors）が通り、手順7の見た目の確認が済んだ
 
 3. **両方**: 1 の URL を先に伝え、そのあいだに 2 を書き出す。
 
-## 9. 残す
+## 10. 残す
 
 台本・`custom/`・`assets/shots/` を git 管理の場所にコミットする。`assets/voice/`・`timeline.json`・`index.html`・`compositions/`・`assets/gsap.min.js`・`node_modules/`・`out/`・`snapshots/` は作り直せるので入れない。
 

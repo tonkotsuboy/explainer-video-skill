@@ -19,6 +19,7 @@ import sys
 import unicodedata
 from pathlib import Path
 
+from image_size import image_aspect
 from pygments import lex
 from pygments.lexers import TextLexer, get_lexer_by_name, get_lexer_for_filename
 from pygments.token import Token
@@ -27,7 +28,10 @@ from pygments.util import ClassNotFound
 ASSETS = Path(__file__).resolve().parent.parent / "assets"
 FPS, W, H = 30, 1920, 1080
 KINDS = {"card", "big", "step", "note", "img", "code"}
-LAYOUTS = {"grid", "steps", "split"}
+LAYOUTS = {"grid", "steps", "split", "stack"}
+# ponytail: measured break-even with 1-2 line cards below (a 1.9:1 image is half as wide in stack);
+# tune per scene with an explicit layout if it misjudges.
+STACK_ASPECT = 3.0  # a split image wider than this (width / height) is laid out as stack
 
 # Motion: short, ease-out, small distances, no bounce or loops. Seconds.
 REVEAL = '{opacity:0,y:24},{opacity:1,y:0,duration:0.6,ease:"expo.out"}'
@@ -138,7 +142,7 @@ class Scene:
         fmt = f'{{minimumFractionDigits:{digits},maximumFractionDigits:{digits},useGrouping:{str("," in num).lower()}}}'
         self.js.append(
             f'{{const el=document.getElementById("{el}"),o={{v:0}};tl.fromTo(o,{{v:0}},{{v:{n},duration:{COUNT_UP},'
-            f'ease:"power3.out",onUpdate:()=>{{el.textContent={json.dumps(pre)}+o.v.toLocaleString("en-US",{fmt})'
+            f'ease:"power3.out",immediateRender:false,onUpdate:()=>{{el.textContent={json.dumps(pre)}+o.v.toLocaleString("en-US",{fmt})'
             f"+{json.dumps(post)};}}}},{t});}}"
         )
 
@@ -205,25 +209,43 @@ class Scene:
         )
 
     def board(self) -> str:
-        """Lay out the items as a grid, steps or split."""
+        """Lay out the items as grid, steps, split or stack.
+
+        Notes listed before every other item go above the rest; the other notes go below.
+        A split whose image is wider than STACK_ASPECT becomes a stack.
+        """
         if comp := self.visual.get("component"):
             return self.custom(comp)
         layout = self.visual.get("layout", "grid")
         if layout not in LAYOUTS:
             self.fail(f"unknown layout {layout!r}")
         items = list(enumerate(self.visual.get("items", [])))
+        first = next((n for n, it in items if it.get("kind", "card") != "note"), len(items))
 
         def kinds(ks: set[str]) -> list[tuple[int, dict]]:
             return [(n, it) for n, it in items if it.get("kind", "card") in ks]
 
-        notes = kinds({"note"})
-        notes_html = "".join(self.item(it, n, fill=False) for n, it in notes)
-        notes_html = f'<div class="notes">{notes_html}</div>' if notes else ""
-        if layout == "split":
-            left = "".join(self.item(it, n, fill=True) for n, it in kinds({"img", "code"}))
+        def notes(top: bool) -> str:
+            group = [(n, it) for n, it in kinds({"note"}) if (n < first) == top]
+            cells = "".join(self.item(it, n, fill=False) for n, it in group)
+            return f'<div class="notes">{cells}</div>' if group else ""
+
+        top = notes(top=True)
+        if layout in ("split", "stack"):
+            media = kinds({"img", "code"})
+            img = next((it for _, it in media if it.get("kind") == "img" and Path(it.get("src", "")).is_file()), None)
+            ar = image_aspect(img["src"]) if img else None
+            if layout == "split" and ar and ar > STACK_ASPECT:
+                layout = "stack"
+                print(f"{self.id}: image is {ar:.1f}:1, laid out as stack instead of split")
+            left = "".join(self.item(it, n, fill=True) for n, it in media)
             right = "".join(self.item(it, n, fill=False) for n, it in kinds({"card", "big", "step"}))
-            return f'<div class="split"><div class="split-left">{left}</div><div class="split-right">{right}{notes_html}</div></div>'
-        out = ""
+            side = top + right + notes(top=False)
+            if layout == "stack":
+                return f'<div class="stack"><div class="stack-media">{left}</div><div class="stack-row">{side}</div></div>'
+            attrs = f'class="split fit" style="--ar:{ar:.3f}"' if ar else 'class="split"'
+            return f'<div {attrs}><div class="split-left">{left}</div><div class="split-right">{side}</div></div>'
+        out = top
         if steps := kinds({"step"}):
             row = ""
             for k, (n, it) in enumerate(steps):
@@ -236,7 +258,7 @@ class Scene:
         if grid := kinds({"card", "big", "img", "code"}):
             cells = "".join(self.item(it, n, fill=True) for n, it in grid)
             out += f'<div class="grid" style="--cols:{self.visual.get("cols", 2)}">{cells}</div>'
-        return out + notes_html
+        return out + notes(top=False)
 
     def custom(self, name: str) -> str:
         """Inline custom/<name>.html: its markup goes on the board, its <script> body joins the scene timeline.
@@ -254,7 +276,7 @@ class Scene:
         """Return the sub-composition file for this scene."""
         board = self.board()
         caps = "".join(
-            f'<div class="clip cap" id="{self.id}-cap{n}" data-start="{self.starts[n]}" '
+            f'<div class="clip caption" id="{self.id}-cap{n}" data-start="{self.starts[n]}" '
             f'data-duration="{round(self.ends[n] - self.starts[n], 3)}" data-track-index="2">'
             f'<div class="capbox">{e(s["text"])}</div></div>'
             for n, s in enumerate(self.sentences)
