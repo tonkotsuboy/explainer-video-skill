@@ -375,7 +375,7 @@ class Scene:
         return f"""<template id="{self.id}-template">
 <div data-composition-id="{self.id}" data-width="{W}" data-height="{H}" data-duration="{self.dur}">
 <div class="scene"><div class="content" id="{self.id}-content"><div class="inner" id="{self.id}-inner">
-<div class="head"><div class="badge">{self.index}</div><div class="title">{e(self.title)}</div></div>
+<div class="head"><div class="title">{e(self.title)}</div></div>
 <div class="board">{board}</div>
 </div>{caps}</div>{audio}</div>
 <script>
