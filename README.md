@@ -18,16 +18,26 @@
 
 ## インストール
 
-シンボリックリンクで入れると、`git pull` だけで更新できます。
+次のどちらかで入れます。どちらも、ホームディレクトリの Claude Code 用の場所に入り、どのリポジトリからでも使えます。
+
+### GitHub CLI（gh skill）
 
 ```bash
-git clone https://github.com/tonkotsuboy/explainer-video-skill
-cd explainer-video-skill
-mkdir -p ~/.claude/skills
-ln -s "$PWD/skills/explainer-video" ~/.claude/skills/explainer-video
+gh skill install tonkotsuboy/explainer-video-skill explainer-video --agent claude-code --scope user
 ```
 
-コピーで入れる場合は `cp -R skills/explainer-video ~/.claude/skills/` です（更新のたびにコピーし直します）。
+- `--scope user` を省くと、いまいる git リポジトリの中（project）に入ります。
+- 引数を付けずに `gh skill install` だけを実行すると、リポジトリ・スキル・エージェントを対話式で選べます。
+- 更新は `gh skill update` です。
+- 詳しくは [gh skill install のマニュアル](https://cli.github.com/manual/gh_skill_install) を見てください。
+
+### skills CLI（npx skills）
+
+```bash
+npx skills add tonkotsuboy/explainer-video-skill --skill explainer-video --agent claude-code --global
+```
+
+- 更新は `npx skills update` です。
 
 自分で足した読み辞書は `~/.config/explainer-video/readings.json` にあり、スキルの外なので、どちらの方法で更新しても消えません。
 
