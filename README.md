@@ -18,26 +18,15 @@
 
 ## インストール
 
-次のどちらかで入れます。どちらも、ホームディレクトリの Claude Code 用の場所に入り、どのリポジトリからでも使えます。
-
-### GitHub CLI（gh skill）
+次のどちらかで入れます。入れる先（エージェントや、プロジェクトかホームか）は、実行したあとに選べます。
 
 ```bash
-gh skill install tonkotsuboy/explainer-video-skill explainer-video --agent claude-code --scope user
+gh skill install tonkotsuboy/explainer-video-skill
 ```
-
-- `--scope user` を省くと、いまいる git リポジトリの中（project）に入ります。
-- 引数を付けずに `gh skill install` だけを実行すると、リポジトリ・スキル・エージェントを対話式で選べます。
-- 更新は `gh skill update` です。
-- 詳しくは [gh skill install のマニュアル](https://cli.github.com/manual/gh_skill_install) を見てください。
-
-### skills CLI（npx skills）
 
 ```bash
-npx skills add tonkotsuboy/explainer-video-skill --skill explainer-video --agent claude-code --global
+npx skills add tonkotsuboy/explainer-video-skill
 ```
-
-- 更新は `npx skills update` です。
 
 自分で足した読み辞書は `~/.config/explainer-video/readings.json` にあり、スキルの外なので、どちらの方法で更新しても消えません。
 
