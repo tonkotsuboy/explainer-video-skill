@@ -352,7 +352,7 @@ class Scene:
         caps = "".join(
             f'<div class="clip caption" id="{self.id}-cap{n}" data-start="{self.starts[n]}" '
             f'data-duration="{round(self.ends[n] - self.starts[n], 3)}" data-track-index="2">'
-            f'<div class="capbox">{e(s["text"])}</div></div>'
+            f'<div class="capbox">{e(s["text"].removesuffix("。"))}</div></div>'
             for n, s in enumerate(self.sentences)
         )
         audio = "".join(
